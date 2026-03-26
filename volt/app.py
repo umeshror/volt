@@ -195,15 +195,16 @@ class App:
         def _ota_http(request: Any) -> dict[str, Any]:
             if not getattr(request, "json", None) or "url" not in request.json:
                 return {"error": "Missing 'url' in JSON payload"}
-            success = self._ota.install_update(request.json["url"])
-            if success:
-                self._ota.reboot()
-                return {"status": "rebooting"}
+            if self._ota:
+                success = self._ota.install_update(request.json["url"])
+                if success:
+                    self._ota.reboot()
+                    return {"status": "rebooting"}
             return {"error": "OTA failed"}
 
         @self.subscribe(f"volt/{self.device_id}/ota")
         def _ota_mqtt(payload: Any) -> None:
-            if isinstance(payload, dict) and "url" in payload:
+            if isinstance(payload, dict) and "url" in payload and self._ota:
                 success = self._ota.install_update(payload["url"])
                 if success:
                     self._ota.reboot()
@@ -295,13 +296,31 @@ class App:
         config_mgr = ConfigManager(self.state)
 
         # 1. Captive Portal (if totally unconfigured)
+        if await self._init_captive_portal(config_mgr):
+            return  # Blocked in captive portal
+
+        # 2. Connectivity
+        await self._init_wifi(config_mgr)
+        await self._init_mqtt(config_mgr)
+
+        # 3. Servers & Tasks
+        self._init_servers(asyncio)
+        self._init_tasks()
+
+        # 4. Start all scheduled tasks
+        await self._scheduler.run()
+
+    # ------------------------------------------------------------------ Boot helpers
+
+    async def _init_captive_portal(self, config_mgr: Any) -> bool:
         if self._wifi_config is None and not config_mgr.is_configured():
             from .captive_portal import CaptivePortal
             portal = CaptivePortal(config_mgr)
             await portal.start()
-            return  # Blocked in captive portal
+            return True
+        return False
 
-        # 2. WiFi
+    async def _init_wifi(self, config_mgr: Any) -> None:
         if self._wifi_config is None:
             from .connectivity.wifi import WiFiConfig
             self._wifi_config = WiFiConfig(
@@ -316,7 +335,7 @@ class App:
             on_disconnect=self._on_disconnect_handlers,
         )
 
-        # 3. MQTT
+    async def _init_mqtt(self, config_mgr: Any) -> None:
         if self._mqtt_config is None and config_mgr.get("mqtt_broker"):
             from .connectivity.mqtt import MQTTConfig
             self._mqtt_config = MQTTConfig(
@@ -333,25 +352,22 @@ class App:
             )
             await self._mqtt_manager.connect()
 
-        # 4. HTTP server
+    def _init_servers(self, asyncio: Any) -> None:
         from .http_server import HTTPServer
         self._http_server = HTTPServer(self._router)
         asyncio.create_task(self._http_server.start()) # type: ignore
 
-        # 5. BLE (if characteristics registered)
         if hasattr(self._router, "_ble_routes") and self._router._ble_routes:
             from .ble import BLEServer
             self._ble_server = BLEServer(self._router, self.device_id)
             self._ble_server.start()
 
-        # 6. Scheduler tasks
+    def _init_tasks(self) -> None:
+        if not self._scheduler:
+            return
         for seconds, fn in self._pending_every:
             self._scheduler.add_every(seconds, fn)
         for pin, trigger, fn in self._pending_pin:
             self._scheduler.add_pin(pin, trigger, fn)
         for condition_fn, fn in self._pending_when:
             self._scheduler.add_when(condition_fn, fn)
-
-        # 7. Start all scheduled tasks
-        await self._scheduler.run()
-
