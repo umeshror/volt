@@ -116,7 +116,7 @@ class MQTTManager:
 
     def _load_queue(self):
         try:
-            with open(_QUEUE_PATH, "r") as f:
+            with open(_QUEUE_PATH) as f:
                 self._queue = json.loads(f.read())
         except Exception:
             self._queue = []

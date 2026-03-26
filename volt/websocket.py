@@ -6,8 +6,8 @@ Handshake: SHA1 key exchange. Frame parsing: supports text and binary
 frames with/without masking. One async task per connected client.
 """
 
-import hashlib
 import base64
+import hashlib
 import struct
 
 try:
@@ -47,7 +47,7 @@ class WebSocket:
                 self._closed = True
                 return None
 
-            fin  = (header[0] & 0x80) != 0
+            _fin  = (header[0] & 0x80) != 0
             opcode = header[0] & 0x0F
             masked = (header[1] & 0x80) != 0
             length = header[1] & 0x7F

@@ -7,7 +7,7 @@ Users import everything they need from this single module:
 """
 
 from .app import App
-from .connectivity import WiFiConfig, MQTTConfig
+from .connectivity import MQTTConfig, WiFiConfig
 
 __all__ = ["App", "WiFiConfig", "MQTTConfig"]
 __version__ = "0.1.0"

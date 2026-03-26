@@ -4,23 +4,26 @@ volt/router.py — Central route registry.
 Decoupled from transport: the same registry serves HTTP, MQTT, and BLE.
 """
 
+from __future__ import annotations
+
 import re
+
+try:
+    from typing import Any, Dict, List, Optional, Tuple
+except ImportError:
+    pass
 
 
 class Router:
-    def __init__(self):
-        # { (method: str, path: str): handler }
+    def __init__(self) -> None:
         self._http_routes: dict = {}
-        # { pattern_str: (compiled_re, param_names, handler) }
         self._http_dynamic: list = []
-        # { topic: str: handler }
         self._mqtt_routes: dict = {}
-        # { name: str: handler }
         self._ble_routes: dict = {}
 
     # ------------------------------------------------------------------ HTTP
 
-    def add_http_route(self, method: str, path: str, handler):
+    def add_http_route(self, method: str, path: str, handler: Any) -> None:
         """Register an HTTP handler for (method, path)."""
         method = method.upper()
         if "{" in path:
@@ -32,7 +35,7 @@ class Router:
         else:
             self._http_routes[(method, path)] = handler
 
-    def resolve_http(self, method: str, path: str):
+    def resolve_http(self, method: str, path: str) -> tuple[Any, dict[str, str]] | None:
         """
         Return (handler, params_dict) for a matching route, or None.
         Strips query string from path before matching.
@@ -60,11 +63,11 @@ class Router:
 
     # ------------------------------------------------------------------ MQTT
 
-    def add_mqtt_route(self, topic: str, handler):
+    def add_mqtt_route(self, topic: str, handler: Any) -> None:
         """Register an MQTT subscription handler."""
         self._mqtt_routes[topic] = handler
 
-    def resolve_mqtt(self, topic: str):
+    def resolve_mqtt(self, topic: str) -> tuple[Any, None] | None:
         """
         Return (handler, None) for a matching MQTT topic, or None.
         Supports '+' (single-level) and '#' (multi-level) wildcards.
@@ -98,10 +101,10 @@ class Router:
 
     # ------------------------------------------------------------------ BLE
 
-    def add_ble_route(self, name: str, handler):
+    def add_ble_route(self, name: str, handler: Any) -> None:
         """Register a BLE GATT characteristic handler."""
         self._ble_routes[name] = handler
 
-    def resolve_ble(self, name: str):
+    def resolve_ble(self, name: str) -> Any | None:
         """Return handler for a BLE characteristic name, or None."""
         return self._ble_routes.get(name)

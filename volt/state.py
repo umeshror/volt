@@ -5,6 +5,15 @@ Writes are synchronous (write-through). Uses atomic write (write to a temp
 file then rename) to guard against corruption on power loss.
 """
 
+from __future__ import annotations
+
+from .exceptions import StateError
+
+try:
+    from typing import Any, Dict, List, Optional
+except ImportError:
+    pass
+
 try:
     import ujson as json
 except ImportError:
@@ -32,25 +41,25 @@ class State:
         state.update({"temp": 22.5, "humidity": 60})
     """
 
-    def __init__(self, path: str = _DEFAULT_PATH, tmp_path: str = _TMP_PATH):
-        self._path = path
-        self._tmp_path = tmp_path
-        self._data: dict = {}
-        self._sync_targets: list = []
-        self._mqtt_manager = None
-        self._http_url = None
+    def __init__(self, path: str = _DEFAULT_PATH, tmp_path: str = _TMP_PATH) -> None:
+        self._path: str = path
+        self._tmp_path: str = tmp_path
+        self._data: dict[str, Any] = {}
+        self._sync_targets: list[str] = []
+        self._mqtt_manager: Any | None = None
+        self._http_url: str | None = None
         self._load()
 
     # ------------------------------------------------------------------ load / save
 
-    def _load(self):
+    def _load(self) -> None:
         try:
-            with open(self._path, "r") as f:
+            with open(self._path) as f:
                 self._data = json.loads(f.read())
         except Exception:
             self._data = {}
 
-    def _save(self):
+    def _save(self) -> None:
         """Atomic write: write to .tmp then rename."""
         try:
             content = json.dumps(self._data)
@@ -59,44 +68,48 @@ class State:
             # Rename — atomic on most filesystems
             try:
                 os.rename(self._tmp_path, self._path)
-            except Exception:
-                # Fallback: direct overwrite
-                with open(self._path, "w") as f:
-                    f.write(content)
+            except OSError:
+                # If rename fails (e.g. cross-device link on test environments), attempt direct overwrite
+                try:
+                    with open(self._path, "w") as f:
+                        f.write(content)
+                except Exception as e:
+                    raise StateError(f"Failed atomic rename and fallback overwrite: {e}") from e
         except Exception as e:
             print(f"[VOLT/State] Save error: {e}")
+            raise StateError(f"Failed to persist state: {e}") from e
 
     # ------------------------------------------------------------------ public API
 
-    def set(self, key: str, value):
+    def set(self, key: str, value: Any) -> None:
         """Set a key and persist to flash."""
         self._data[key] = value
         self._save()
         self._notify_sync(key, value)
 
-    def get(self, key: str, default=None):
+    def get(self, key: str, default: Any = None) -> Any:
         """Get key value, returning `default` if absent."""
         return self._data.get(key, default)
 
-    def delete(self, key: str):
+    def delete(self, key: str) -> None:
         """Remove a key and persist."""
         self._data.pop(key, None)
         self._save()
 
-    def update(self, mapping: dict):
+    def update(self, mapping: dict[str, Any]) -> None:
         """Batch-update multiple keys atomically."""
         self._data.update(mapping)
         self._save()
         for k, v in mapping.items():
             self._notify_sync(k, v)
 
-    def all(self) -> dict:
+    def all(self) -> dict[str, Any]:
         """Return a copy of the entire state dict."""
         return dict(self._data)
 
     # ------------------------------------------------------------------ sync
 
-    def sync_to(self, target: str, mqtt_manager=None, url: str = None):
+    def sync_to(self, target: str, mqtt_manager: Any | None = None, url: str | None = None) -> None:
         """
         Enable auto-publish on every set().
 
@@ -114,13 +127,13 @@ class State:
             if url is not None:
                 self._http_url = url
 
-    def _notify_sync(self, key, value):
+    def _notify_sync(self, key: str, value: Any) -> None:
         for target in self._sync_targets:
             try:
                 if target == "mqtt" and self._mqtt_manager is not None:
                     self._mqtt_manager.publish(f"state/{key}", {key: value})
                 elif target == "http" and self._http_url is not None:
-                    import urequests as requests  # noqa: MicroPython
+                    import urequests as requests  # type: ignore
                     requests.post(self._http_url, json={key: value})
             except Exception as e:
                 print(f"[VOLT/State] Sync error ({target}): {e}")
