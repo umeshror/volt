@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>⚡ VOLT Dashboard</title>
+  <meta name="description" content="VOLT IoT Device Management Dashboard — live sensor readings, device health, MQTT log, and OTA updates." />
+  <link rel="stylesheet" href="/static/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <!-- ── Header ── -->
+  <header class="header">
+    <div class="logo">
+      <span class="logo-icon">⚡</span>
+      <span class="logo-text">VOLT</span>
+      <span class="logo-sub">Dashboard</span>
+    </div>
+    <div class="header-status">
+      <span id="ws-indicator" class="status-dot status-offline" title="WebSocket"></span>
+      <span id="ws-label">Connecting…</span>
+    </div>
+  </header>
+
+  <!-- ── Main Grid ── -->
+  <main class="grid">
+
+    <!-- Device List -->
+    <section class="card" id="card-devices">
+      <h2 class="card-title">📡 Devices</h2>
+      <div id="device-list" class="device-list">
+        <p class="placeholder">Scanning for VOLT devices…</p>
+      </div>
+    </section>
+
+    <!-- Live Sensor Graph -->
+    <section class="card card-wide" id="card-graph">
+      <h2 class="card-title">📈 Live Sensor Data</h2>
+      <div class="chart-container">
+        <canvas id="sensor-chart"></canvas>
+      </div>
+    </section>
+
+    <!-- Device Health -->
+    <section class="card" id="card-health">
+      <h2 class="card-title">💓 Device Health</h2>
+      <div id="health-panel" class="health-panel">
+        <div class="health-row"><span>Uptime</span><span id="h-uptime">—</span></div>
+        <div class="health-row"><span>Free RAM</span><span id="h-ram">—</span></div>
+        <div class="health-row"><span>WiFi RSSI</span><span id="h-rssi">—</span></div>
+        <div class="health-row"><span>IP Address</span><span id="h-ip">—</span></div>
+      </div>
+    </section>
+
+    <!-- MQTT Log -->
+    <section class="card card-wide" id="card-mqtt">
+      <h2 class="card-title">
+        📨 MQTT Log
+        <input id="mqtt-filter" type="text" placeholder="Filter by topic…" class="filter-input" />
+      </h2>
+      <div id="mqtt-log" class="log-panel" role="log" aria-live="polite"></div>
+    </section>
+
+    <!-- OTA Panel -->
+    <section class="card" id="card-ota">
+      <h2 class="card-title">🔄 OTA Update</h2>
+      <label class="upload-label" for="ota-file">
+        <span id="ota-file-name">Choose firmware file…</span>
+      </label>
+      <input id="ota-file" type="file" class="file-input" accept=".py,.bin" />
+      <select id="ota-device" class="select-input">
+        <option value="">— Select device —</option>
+      </select>
+      <button id="ota-push-btn" class="btn btn-primary" disabled>Push Firmware</button>
+      <p id="ota-status" class="ota-status"></p>
+    </section>
+
+    <!-- Crash Log -->
+    <section class="card" id="card-crashes">
+      <h2 class="card-title">🪲 Crash Log</h2>
+      <button id="refresh-crashes" class="btn btn-sm">Refresh</button>
+      <div id="crash-log" class="log-panel mono"></div>
+    </section>
+
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

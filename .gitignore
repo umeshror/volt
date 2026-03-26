@@ -1,0 +1,34 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Pytest Tests / Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Package Builds
+*.egg-info/
+build/
+dist/
+
+# VOLT Device specific (if tested locally)
+/state.json
+/state.json.tmp
+/crashes.json
+/mqtt_queue.json
