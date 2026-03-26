@@ -214,7 +214,7 @@ volt dashboard
 Upload via the CLI (recommended):
 
 ```bash
-pip install volt-cli
+pip install volt-iot
 volt flash main.py --port /dev/ttyUSB0
 ```
 
@@ -228,10 +228,10 @@ mpremote cp main.py :main.py
 ### CLI Tools (Desktop)
 
 ```bash
-pip install volt-cli
+pip install volt-iot
 ```
 
-Requires Python 3.10+ on the host machine.
+Requires Python 3.8+ on the host machine.
 
 ---
 
@@ -250,22 +250,26 @@ Requires Python 3.10+ on the host machine.
 
 ## Project Status
 
-VOLT is in active early development. The core API is stabilising but may change before v1.0.
+**v0.1 shipped.** All planned features are implemented and tested.
 
-- [x] WiFi connectivity manager
-- [x] HTTP server (`@app.get`, `@app.post`)
-- [x] MQTT pub/sub (`@app.subscribe`, `app.mqtt.publish`)
+- [x] WiFi connectivity manager (exponential backoff, AP fallback)
+- [x] HTTP server (`@app.get`, `@app.post`, `@app.put`, `@app.delete`)
+- [x] MQTT pub/sub (`@app.subscribe`, `app.mqtt.publish`, offline queue)
 - [x] Periodic task scheduler (`@app.every`)
 - [x] Pin interrupt tasks (`@app.on_pin`)
-- [x] Persistent state (flash-backed KV store)
+- [x] Threshold triggers (`@app.when`)
+- [x] Lifecycle hooks (`@app.on_connect`, `@app.on_disconnect`)
+- [x] Persistent state (flash-backed KV store, atomic writes)
 - [x] Watchdog + crash logging
-- [x] CLI: `flash`, `monitor`, `shell`
-- [ ] BLE GATT server
-- [ ] Sensor library (DHT22, BME280, SoilMoisture ...)
-- [ ] Dashboard UI
-- [ ] OTA updates
-- [ ] WebSocket support
-- [ ] Threshold triggers (`@app.when`)
+- [x] Health check (periodic HTTP ping)
+- [x] BLE GATT server (read + notify via `ubluetooth`)
+- [x] WebSocket server (RFC 6455, full frame parsing)
+- [x] Sensor library — DHT22, BME280, SoilMoisture, Ultrasonic
+- [x] CLI: `flash`, `monitor`, `shell`, `scan`, `ota`, `dashboard`
+- [x] Dashboard UI (Chart.js live graphs, OTA panel, crash log viewer)
+- [x] OTA updates (`/ota/upload` endpoint + `volt ota push`)
+
+> BLE write-characteristic support is deferred to v0.2.
 
 ---
 
