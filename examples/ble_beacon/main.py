@@ -3,14 +3,15 @@ examples/ble_beacon/main.py
 
 BLE GATT server exposing temperature and humidity as readable characteristics.
 """
+
 from volt import App, WiFiConfig
 from volt.sensors import DHT22
 
 app = App(device="esp32")
 sensor = DHT22(pin=4)
 
-# WiFi optional for BLE-only devices
-app.config(wifi=WiFiConfig(ssid="YourSSID", password="YourPassword"))
+# WiFi optional for BLE-only devices, but Captive portal can still configure it.
+# app.config(wifi=WiFiConfig(ssid="YourSSID", password="YourPassword"))
 
 
 @app.ble_characteristic("temperature")
@@ -31,7 +32,8 @@ def ble_uptime():
 
 # Still expose an HTTP endpoint for debugging
 @app.get("/status")
-def status():
+async def status():
+    await sensor.read()
     return {
         "temp": sensor.temperature,
         "humidity": sensor.humidity,
@@ -43,7 +45,7 @@ def status():
 # Notify all BLE clients every 10s
 @app.every(seconds=10)
 async def ble_notify():
-    # BLE server is accessible via app._ble_server after run() starts
+    await sensor.read()  # Fetch latest from hardware
     ble = app._ble_server
     if ble is not None:
         ble.notify_all("temperature", sensor.temperature)

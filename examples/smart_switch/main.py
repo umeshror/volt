@@ -3,17 +3,20 @@ examples/smart_switch/main.py
 
 HTTP + MQTT controlled GPIO relay (smart switch).
 """
-from volt import App, WiFiConfig, MQTTConfig
+
 from machine import Pin
+
+from volt import App, MQTTConfig, WiFiConfig
 
 app = App(device="esp32")
 relay = Pin(26, Pin.OUT)
 relay.off()
 
-app.config(
-    wifi=WiFiConfig(ssid="YourSSID", password="YourPassword"),
-    mqtt=MQTTConfig(broker="192.168.1.10"),
-)
+# Captive portal handles WiFi/MQTT automatically out of the box!
+# app.config(
+#     wifi=WiFiConfig(ssid="YourSSID", password="YourPassword"),
+#     mqtt=MQTTConfig(broker="192.168.1.10"),
+# )
 
 
 def _set_relay(state: str):
