@@ -5,7 +5,14 @@ Wraps ubluetooth (MicroPython built-in) with a decorator-driven
 GATT characteristic interface. Supports read + notify; write deferred to v0.2.
 """
 
+from __future__ import annotations
+
 import struct
+
+try:
+    from typing import Any, Callable
+except ImportError:
+    pass
 
 try:
     import ubluetooth as bluetooth
@@ -22,20 +29,17 @@ _VOLT_SERVICE_UUID = bluetooth.UUID("6E400001-B5A3-F393-E0A9-E50E24DCCA9E") if _
 class BLEServer:
     """
     BLE GATT server exposing router-registered characteristics.
-
-    Each characteristic registered via @app.ble_characteristic(name) becomes
-    a readable (and notifiable) GATT characteristic under the VOLT service.
     """
 
-    def __init__(self, router, device_id: str = "device"):
+    def __init__(self, router: Any, device_id: str = "device") -> None:
         self._router = router
         self._device_id = device_id
-        self._ble = None
-        self._connections = set()
-        self._char_handles: dict = {}   # handle → characteristic name
-        self._name_handles: dict = {}   # name → (value_handle, notify_handle)
+        self._ble: Any = None
+        self._connections: set[Any] = set()
+        self._char_handles: dict[str, Any] = {}   # handle → characteristic name
+        self._name_handles: dict[str, Any] = {}   # name → (value_handle, notify_handle)
 
-    def start(self):
+    def start(self) -> None:
         """Initialise BLE, build GATT table, start advertising."""
         if not _BT_AVAILABLE:
             print("[VOLT/BLE] ubluetooth not available — BLE disabled")
@@ -53,23 +57,23 @@ class BLEServer:
         self._advertise(adv_name)
         print(f"[VOLT/BLE] Advertising as {adv_name.decode()}")
 
-    def _build_services(self):
+    def _build_services(self) -> tuple[Any, ...]:
         """Build a GATT service descriptor from registered BLE routes."""
         characteristics = []
-        for name in self._router._ble_routes:
+        routes = getattr(self._router, "_ble_routes", {})
+        for name in routes:
             char_uuid = bluetooth.UUID(hash(name) & 0xFFFF)
             flags = bluetooth.FLAG_READ | bluetooth.FLAG_NOTIFY
             characteristics.append((char_uuid, flags))
-            # Store name → UUID mapping for handle resolution
             self._char_handles[name] = char_uuid
 
         service = (_VOLT_SERVICE_UUID, characteristics)
         return (service,)
 
-    def _map_handles(self, handles):
+    def _map_handles(self, handles: Any) -> None:
         """Map handles returned by gatts_register_services to characteristic names."""
-        names = list(self._router._ble_routes.keys())
-        # handles is nested: ((svc_handles,),)
+        routes = getattr(self._router, "_ble_routes", {})
+        names = list(routes.keys())
         try:
             svc_handles = handles[0]
             for i, name in enumerate(names):
@@ -77,7 +81,7 @@ class BLEServer:
         except Exception as e:
             print(f"[VOLT/BLE] Handle mapping error: {e}")
 
-    def _irq(self, event, data):
+    def _irq(self, event: int, data: Any) -> None:
         """Single BLE IRQ handler dispatching all events."""
         _IRQ_CENTRAL_CONNECT    = 1
         _IRQ_CENTRAL_DISCONNECT = 2
@@ -98,21 +102,24 @@ class BLEServer:
             conn_handle, attr_handle = data
             self._serve_read(attr_handle)
 
-    def _serve_read(self, attr_handle):
+    def _serve_read(self, attr_handle: Any) -> None:
         """Find the handler for this attribute and write the response."""
         for name, handle in self._name_handles.items():
             if handle == attr_handle:
-                handler = self._router.resolve_ble(name)
-                if handler:
-                    try:
-                        value = handler()
-                        payload = self._encode(value)
-                        self._ble.gatts_write(attr_handle, payload)
-                    except Exception as e:
-                        print(f"[VOLT/BLE] Read handler error for '{name}': {e}")
+                resolve_func = getattr(self._router, "resolve_ble", None)
+                if resolve_func:
+                    handler = resolve_func(name)
+                    if handler:
+                        try:
+                            value = handler()
+                            payload = self._encode(value)
+                            if self._ble is not None:
+                                self._ble.gatts_write(attr_handle, payload)
+                        except Exception as e:
+                            print(f"[VOLT/BLE] Read handler error for '{name}': {e}")
                 break
 
-    def notify_all(self, name: str, value):
+    def notify_all(self, name: str, value: Any) -> None:
         """Send a notify to all connected centrals for a named characteristic."""
         handle = self._name_handles.get(name)
         if handle is None or self._ble is None:
@@ -126,7 +133,7 @@ class BLEServer:
                 pass
 
     @staticmethod
-    def _encode(value) -> bytes:
+    def _encode(value: Any) -> bytes:
         """Auto-convert Python value to BLE bytes."""
         if isinstance(value, bytes):
             return value
@@ -138,8 +145,10 @@ class BLEServer:
             return value.encode()
         return str(value).encode()
 
-    def _advertise(self, name: bytes):
+    def _advertise(self, name: bytes) -> None:
         """Start BLE advertising with the device name."""
+        if self._ble is None:
+            return
         adv_data = (
             b"\x02\x01\x06"                          # Flags: LE General Discoverable
             + bytes([len(name) + 1, 0x09])           # Complete local name

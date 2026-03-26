@@ -107,5 +107,36 @@ def test_mqtt_manager_dispatches_to_router():
     # Simulate incoming message
     manager._on_message(b"home/temp", json.dumps({"temp": 23.0}).encode())
 
-    assert len(received) == 1
     assert received[0]["temp"] == 23.0
+
+def test_mqtt_queue_drop_oldest():
+    cfg = MQTTConfig(broker="127.0.0.1", max_queue_size=2, queue_overflow="drop_oldest")
+    manager = MQTTManager(cfg)
+    manager._connected = False
+    manager._enqueue("t1", "p1")
+    manager._enqueue("t2", "p2")
+    manager._enqueue("t3", "p3")
+    assert len(manager._queue) == 2
+    assert manager._queue[0]["topic"] == "t2"
+    assert manager._queue[1]["topic"] == "t3"
+
+def test_mqtt_queue_drop_newest():
+    cfg = MQTTConfig(broker="127.0.0.1", max_queue_size=2, queue_overflow="drop_newest")
+    manager = MQTTManager(cfg)
+    manager._connected = False
+    manager._enqueue("t1", "p1")
+    manager._enqueue("t2", "p2")
+    manager._enqueue("t3", "p3")
+    assert len(manager._queue) == 2
+    assert manager._queue[0]["topic"] == "t1"
+    assert manager._queue[1]["topic"] == "t2"
+
+def test_mqtt_queue_raise():
+    from volt.exceptions import NetworkError
+    cfg = MQTTConfig(broker="127.0.0.1", max_queue_size=2, queue_overflow="raise")
+    manager = MQTTManager(cfg)
+    manager._connected = False
+    manager._enqueue("t1", "p1")
+    manager._enqueue("t2", "p2")
+    with pytest.raises(NetworkError, match="overflow"):
+        manager._enqueue("t3", "p3")

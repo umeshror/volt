@@ -49,6 +49,8 @@ class App:
         self._state: Any | None = None
         self._health: Any | None = None
         self._watchdog: Any | None = None
+        self._telemetry: Any | None = None
+        self._ota: Any | None = None
         self._on_connect_handlers: list[Callable[..., Any]] = []
         self._on_disconnect_handlers: list[Callable[..., Any]] = []
         self._boot_time: int | None = None
@@ -178,6 +180,34 @@ class App:
         from .health import CrashLog
         self._crash_log = CrashLog(max_entries=max_entries)
 
+    def telemetry(self, interval: int = 300) -> None:
+        """Enable periodic MQTT telemetry publishing."""
+        from .telemetry import Telemetry
+        self._telemetry = Telemetry(self)
+        self._telemetry.auto_publish(interval)
+
+    def enable_ota(self) -> None:
+        """Enable remote OTA triggers via HTTP POST and MQTT."""
+        from .ota import OTAManager
+        self._ota = OTAManager()
+
+        @self.post("/ota/upload")
+        def _ota_http(request: Any) -> dict[str, Any]:
+            if not getattr(request, "json", None) or "url" not in request.json:
+                return {"error": "Missing 'url' in JSON payload"}
+            success = self._ota.install_update(request.json["url"])
+            if success:
+                self._ota.reboot()
+                return {"status": "rebooting"}
+            return {"error": "OTA failed"}
+
+        @self.subscribe(f"volt/{self.device_id}/ota")
+        def _ota_mqtt(payload: Any) -> None:
+            if isinstance(payload, dict) and "url" in payload:
+                success = self._ota.install_update(payload["url"])
+                if success:
+                    self._ota.reboot()
+
     def health_check(self, interval: int = 60, url: str | None = None) -> None:
         """Enable periodic HTTP health-check ping."""
         from .health import HealthCheck
@@ -261,16 +291,38 @@ class App:
         from .scheduler import Scheduler
         self._scheduler = Scheduler()
 
-        # 1. WiFi
-        if self._wifi_config is not None:
-            from .connectivity.wifi import connect_wifi
-            await connect_wifi(
-                self._wifi_config,
-                on_connect=self._on_connect_handlers,
-                on_disconnect=self._on_disconnect_handlers,
+        from .config import ConfigManager
+        config_mgr = ConfigManager(self.state)
+
+        # 1. Captive Portal (if totally unconfigured)
+        if self._wifi_config is None and not config_mgr.is_configured():
+            from .captive_portal import CaptivePortal
+            portal = CaptivePortal(config_mgr)
+            await portal.start()
+            return  # Blocked in captive portal
+
+        # 2. WiFi
+        if self._wifi_config is None:
+            from .connectivity.wifi import WiFiConfig
+            self._wifi_config = WiFiConfig(
+                ssid=config_mgr.get("wifi_ssid") or "",
+                password=config_mgr.get("wifi_password") or "",
             )
 
-        # 2. MQTT
+        from .connectivity.wifi import connect_wifi
+        await connect_wifi(
+            self._wifi_config,
+            on_connect=self._on_connect_handlers,
+            on_disconnect=self._on_disconnect_handlers,
+        )
+
+        # 3. MQTT
+        if self._mqtt_config is None and config_mgr.get("mqtt_broker"):
+            from .connectivity.mqtt import MQTTConfig
+            self._mqtt_config = MQTTConfig(
+                broker=config_mgr.get("mqtt_broker"),
+            )
+
         if self._mqtt_config is not None:
             from .connectivity.mqtt import MQTTManager
             self._mqtt_manager = MQTTManager(
@@ -281,18 +333,18 @@ class App:
             )
             await self._mqtt_manager.connect()
 
-        # 3. HTTP server
+        # 4. HTTP server
         from .http_server import HTTPServer
         self._http_server = HTTPServer(self._router)
-        asyncio.create_task(self._http_server.start())
+        asyncio.create_task(self._http_server.start()) # type: ignore
 
-        # 4. BLE (if characteristics registered)
-        if self._router._ble_routes:
+        # 5. BLE (if characteristics registered)
+        if hasattr(self._router, "_ble_routes") and self._router._ble_routes:
             from .ble import BLEServer
             self._ble_server = BLEServer(self._router, self.device_id)
             self._ble_server.start()
 
-        # 5. Scheduler tasks
+        # 6. Scheduler tasks
         for seconds, fn in self._pending_every:
             self._scheduler.add_every(seconds, fn)
         for pin, trigger, fn in self._pending_pin:
@@ -300,6 +352,6 @@ class App:
         for condition_fn, fn in self._pending_when:
             self._scheduler.add_when(condition_fn, fn)
 
-        # 6. Start all scheduled tasks
+        # 7. Start all scheduled tasks
         await self._scheduler.run()
 

@@ -16,10 +16,10 @@ except ImportError:
 
 class Router:
     def __init__(self) -> None:
-        self._http_routes: dict = {}
-        self._http_dynamic: list = []
-        self._mqtt_routes: dict = {}
-        self._ble_routes: dict = {}
+        self._http_routes: dict[Any, Any] = {}
+        self._http_dynamic: list[Any] = []
+        self._mqtt_routes: dict[Any, Any] = {}
+        self._ble_routes: dict[Any, Any] = {}
 
     # ------------------------------------------------------------------ HTTP
 

@@ -41,9 +41,9 @@ class State:
         state.update({"temp": 22.5, "humidity": 60})
     """
 
-    def __init__(self, path: str = _DEFAULT_PATH, tmp_path: str = _TMP_PATH) -> None:
+    def __init__(self, path: str = _DEFAULT_PATH, tmp_path: str | None = None) -> None:
         self._path: str = path
-        self._tmp_path: str = tmp_path
+        self._tmp_path: str = tmp_path if tmp_path else path + ".tmp"
         self._data: dict[str, Any] = {}
         self._sync_targets: list[str] = []
         self._mqtt_manager: Any | None = None

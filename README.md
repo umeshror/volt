@@ -61,6 +61,13 @@ volt flash main.py --port /dev/ttyUSB0
 
 ## Features
 
+### 🚀 Enterprise Fleet Readiness (v0.2)
+- **Captive Portal Provisioning**: Touchless AP-fallback setup when WiFi drops.
+- **Over-The-Air (OTA) Updates**: Atomic A/B dual-bank firmware flashing triggered via MQTT or HTTP.
+- **Fleet Telemetry**: Continuous zero-config streaming of RAM, RSSI, and Uptime metrics.
+- **True Async Sensors**: 100% non-blocking hardware interrupt (IRQ) driver architecture.
+- **Bounded Offline Queues**: Configurable MQTT offline queue policies (`drop_oldest`) to prevent memory leaks.
+
 ### Multi-Protocol Routing
 One decorator syntax across HTTP, MQTT, BLE, and WebSocket. Define your handler once — VOLT wires it to the right transport.
 
@@ -175,24 +182,39 @@ volt dashboard
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────┐
-│           Your Application Code          │
-│   @app.every  @app.get  @app.subscribe  │
-├─────────────────────────────────────────┤
-│             Framework Core               │
-│   Router | Scheduler | State Manager    │
-├──────────┬──────────┬───────────────────┤
-│   HTTP   │   MQTT   │   BLE / Serial    │
-│  Server  │  Client  │    Handlers       │
-├──────────┴──────────┴───────────────────┤
-│         Connectivity Manager            │
-│     WiFi | Reconnect | Offline Queue    │
-├─────────────────────────────────────────┤
-│          MicroPython / uasyncio         │
-├─────────────────────────────────────────┤
-│       ESP32 / Pico W Hardware           │
-└─────────────────────────────────────────┘
+```mermaid
+graph TD
+    classDef hardware fill:#f9f9f9,stroke:#333,stroke-width:2px;
+    classDef core fill:#e1f5fe,stroke:#0288d1,stroke-width:2px;
+    classDef protocol fill:#f3e5f5,stroke:#8e24aa,stroke-width:2px;
+
+    App["App Orchestrator<br/>(Router / Scheduler / State)"]:::core
+    
+    subgraph "Edge Interfaces"
+        HTTP["HTTP / Captive Portal"]:::protocol
+        MQTT["MQTT + Bounded Queue"]:::protocol
+        BLE["BLE GATT"]:::protocol
+    end
+    
+    subgraph "Hardware Abstraction"
+        OTA["OTA Manager (A/B Partition)"]:::core
+        Sensors["Async IRQ Sensors"]:::core
+        Tele["Fleet Telemetry"]:::core
+    end
+    
+    HW["MicroPython / Hardware"]:::hardware
+
+    App --> HTTP
+    App --> MQTT
+    App --> BLE
+    
+    App --> OTA
+    App --> Sensors
+    App --> Tele
+    
+    OTA --> HW
+    Sensors --> HW
+    Tele --> HW
 ```
 
 ---
@@ -250,9 +272,13 @@ Requires Python 3.8+ on the host machine.
 
 ## Project Status
 
-**v0.1 shipped.** All planned features are implemented and tested.
+**v0.2 Enterprise shipped.** All core routing and fleet administration features are active.
 
-- [x] WiFi connectivity manager (exponential backoff, AP fallback)
+- [x] Captive Portal AP fallback WiFi provisioning
+- [x] Over-The-Air (OTA) Updates with A/B partitioning via HTTP/MQTT
+- [x] Fleet Telemetry (RAM, Storage, RSSI, Uptime)
+- [x] Bounded Configurable MQTT Offline Queues
+- [x] Hardware Interrupt (IRQ) Async Sensor Drivers
 - [x] HTTP server (`@app.get`, `@app.post`, `@app.put`, `@app.delete`)
 - [x] MQTT pub/sub (`@app.subscribe`, `app.mqtt.publish`, offline queue)
 - [x] Periodic task scheduler (`@app.every`)

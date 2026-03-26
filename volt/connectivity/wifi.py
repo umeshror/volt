@@ -8,6 +8,8 @@ Responsibilities:
   - Background reconnection loop
 """
 
+from __future__ import annotations
+
 try:
     import uasyncio as asyncio
 except ImportError:
@@ -17,6 +19,11 @@ try:
     import network
 except ImportError:
     network = None
+
+try:
+    from typing import Any, Callable
+except ImportError:
+    pass
 
 
 class WiFiConfig:
@@ -29,7 +36,7 @@ class WiFiConfig:
         max_retries: int = 10,
         ap_ssid: str = "volt-setup",
         ap_password: str = "voltsetup",
-    ):
+    ) -> None:
         self.ssid = ssid
         self.password = password
         self.max_retries = max_retries
@@ -39,8 +46,8 @@ class WiFiConfig:
 
 async def connect_wifi(
     config: WiFiConfig,
-    on_connect: list = None,
-    on_disconnect: list = None,
+    on_connect: list[Callable[..., Any]] | None = None,
+    on_disconnect: list[Callable[..., Any]] | None = None,
 ) -> bool:
     """
     Connect to WiFi with exponential backoff.
@@ -50,14 +57,14 @@ async def connect_wifi(
     if network is None:
         return False
 
-    on_connect = on_connect or []
-    on_disconnect = on_disconnect or []
+    on_connect_cbs: list[Callable[..., Any]] = on_connect or []
+    on_disconnect_cbs: list[Callable[..., Any]] = on_disconnect or []
 
-    sta = network.WLAN(network.STA_IF)
+    sta = network.WLAN(network.STA_IF) # type: ignore
     sta.active(True)
 
     if sta.isconnected():
-        await _fire_callbacks(on_connect)
+        await _fire_callbacks(on_connect_cbs)
         return True
 
     sta.connect(config.ssid, config.password)
@@ -66,8 +73,8 @@ async def connect_wifi(
     for attempt in range(config.max_retries):
         if sta.isconnected():
             print(f"[VOLT/WiFi] Connected: {sta.ifconfig()[0]}")
-            await _fire_callbacks(on_connect)
-            asyncio.create_task(_monitor_connection(sta, config, on_connect, on_disconnect))
+            await _fire_callbacks(on_connect_cbs)
+            asyncio.create_task(_monitor_connection(sta, config, on_connect_cbs, on_disconnect_cbs))  # type: ignore
             return True
         print(f"[VOLT/WiFi] Attempt {attempt + 1}/{config.max_retries} — waiting {delay}s")
         await asyncio.sleep(delay)
@@ -78,19 +85,21 @@ async def connect_wifi(
     return False
 
 
-async def _start_ap(config: WiFiConfig):
-    ap = network.WLAN(network.AP_IF)
+async def _start_ap(config: WiFiConfig) -> None:
+    if network is None:
+        return
+    ap = network.WLAN(network.AP_IF) # type: ignore
     ap.active(True)
     ap.config(essid=config.ap_ssid, password=config.ap_password)
     print(f"[VOLT/WiFi] AP mode: SSID={config.ap_ssid}")
 
 
-async def _monitor_connection(sta, config, on_connect, on_disconnect):
+async def _monitor_connection(sta: Any, config: WiFiConfig, on_connect: list[Callable[..., Any]], on_disconnect: list[Callable[..., Any]]) -> None:
     """Background task: silently reconnect if connection drops."""
-    was_connected = True
+    was_connected: bool = True
     while True:
         await asyncio.sleep(10)
-        currently_connected = sta.isconnected()
+        currently_connected: bool = sta.isconnected()
         if was_connected and not currently_connected:
             print("[VOLT/WiFi] Connection lost — reconnecting")
             await _fire_callbacks(on_disconnect)
@@ -98,10 +107,10 @@ async def _monitor_connection(sta, config, on_connect, on_disconnect):
         was_connected = currently_connected
 
 
-async def _fire_callbacks(callbacks: list):
+async def _fire_callbacks(callbacks: list[Callable[..., Any]]) -> None:
     for cb in callbacks:
         try:
-            if asyncio.iscoroutinefunction(cb):
+            if asyncio.iscoroutinefunction(cb): # type: ignore
                 await cb()
             else:
                 cb()
