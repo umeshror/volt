@@ -3,7 +3,10 @@ volt/config.py — Persistent fleet configuration manager.
 """
 from __future__ import annotations
 
-from typing import Any
+try:
+    from typing import Any
+except ImportError:
+    pass
 
 from .state import State
 
@@ -20,7 +23,10 @@ class ConfigManager:
             "wifi_ssid": "",
             "wifi_password": "",
             "wifi_ap_ssid": "VOLT-Setup",
-            "wifi_ap_password": "voltpassword",
+            # No default AP password: the AP starts open so users can connect
+            # without credentials. The captive portal then collects WiFi config.
+            # Set a password explicitly via config.set() if isolation is needed.
+            "wifi_ap_password": "",
             "mqtt_broker": "",
             "mqtt_port": 1883,
             "mqtt_client_id": "volt-device",

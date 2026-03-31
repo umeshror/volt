@@ -21,6 +21,29 @@ try:
 except ImportError:
     pass
 
+try:
+    import inspect as _inspect
+    def _handler_accepts_request(fn: Any) -> bool:
+        """Return True if handler declares a 'request' parameter."""
+        try:
+            return "request" in _inspect.signature(fn).parameters
+        except (ValueError, TypeError):
+            return False
+except ImportError:
+    # inspect is not available on MicroPython — assume handlers don't take request
+    def _handler_accepts_request(fn: Any) -> bool:  # type: ignore[misc]
+        return False
+
+
+def parse_qs(qs: str) -> dict[str, str]:
+    """Parse a URL query string into a dict. Public utility for other modules."""
+    result: dict[str, str] = {}
+    for pair in qs.split("&"):
+        if "=" in pair:
+            k, v = pair.split("=", 1)
+            result[k] = v
+    return result
+
 
 class Request:
     __slots__ = ("method", "path", "headers", "body", "query", "params")
@@ -32,6 +55,10 @@ class Request:
         self.body = body
         self.query = query
         self.params = params or {}
+
+
+# Maximum request body accepted — protects against OOM on constrained hardware.
+_MAX_BODY_SIZE = 16 * 1024  # 16 KB
 
 
 class HTTPServer:
@@ -97,11 +124,14 @@ class HTTPServer:
             # Body
             body: Any = None
             if content_length > 0:
+                if content_length > _MAX_BODY_SIZE:
+                    print(f"[VOLT/HTTP] Request body too large ({content_length} > {_MAX_BODY_SIZE}); rejected")
+                    return None
                 raw = await reader.read(content_length)
                 ct = headers.get("content-type", "")
                 if "application/json" in ct:
                     try:
-                        body = json.loads(raw) # type: ignore
+                        body = json.loads(raw)  # type: ignore
                     except Exception:
                         body = raw
                 else:
@@ -125,13 +155,14 @@ class HTTPServer:
         request.params = params
 
         try:
-            import inspect
-            if asyncio.iscoroutinefunction(handler): # type: ignore
-                response = await handler(**params)
+            accepts_request = _handler_accepts_request(handler)
+            if asyncio.iscoroutinefunction(handler):  # type: ignore
+                if accepts_request:
+                    response = await handler(request=request, **params)
+                else:
+                    response = await handler(**params)
             else:
-                # Check if handler accepts request
-                sig = inspect.signature(handler)
-                if "request" in sig.parameters:
+                if accepts_request:
                     response = handler(request=request, **params)
                 else:
                     response = handler(**params)
@@ -139,7 +170,7 @@ class HTTPServer:
         except TypeError:
             # Handler doesn't accept params — call plain
             try:
-                if asyncio.iscoroutinefunction(handler): # type: ignore
+                if asyncio.iscoroutinefunction(handler):  # type: ignore
                     response = await handler()
                 else:
                     response = handler()
@@ -181,9 +212,5 @@ class HTTPServer:
 
     @staticmethod
     def _parse_qs(qs: str) -> dict[str, str]:
-        result: dict[str, str] = {}
-        for pair in qs.split("&"):
-            if "=" in pair:
-                k, v = pair.split("=", 1)
-                result[k] = v
-        return result
+        """Kept for backward compatibility — delegates to module-level parse_qs."""
+        return parse_qs(qs)

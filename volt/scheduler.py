@@ -38,15 +38,15 @@ class Scheduler:
 
     def add_every(self, seconds: float, fn: Callable[..., Any]) -> None:
         """Register a periodic task that fires every `seconds` seconds."""
-        self._tasks.append(self._every_loop(seconds, fn))
+        # Pre-compute the coroutine check once — not on every loop tick.
+        is_coro = asyncio.iscoroutinefunction(fn)
+        self._tasks.append(lambda: self._every_loop(seconds, fn, is_coro))
 
-    async def _every_loop(self, seconds: float, fn: Callable[..., Any]) -> None:
+    async def _every_loop(self, seconds: float, fn: Callable[..., Any], is_coro: bool) -> None:
         interval_ms: int = int(seconds * 1000)
         while True:
             try:
-                import inspect
-                # Circuit breaker to catch stray synchronous blocks
-                if asyncio.iscoroutinefunction(fn):
+                if is_coro:
                     await fn()
                 else:
                     fn()
@@ -58,9 +58,10 @@ class Scheduler:
 
     def add_pin(self, pin: int, trigger: Any, fn: Callable[..., Any]) -> None:
         """Register a GPIO interrupt task."""
-        self._tasks.append(self._pin_task(pin, trigger, fn))
+        is_coro = asyncio.iscoroutinefunction(fn)
+        self._tasks.append(lambda: self._pin_task(pin, trigger, fn, is_coro))
 
-    async def _pin_task(self, pin: int, trigger: Any, fn: Callable[..., Any]) -> None:
+    async def _pin_task(self, pin: int, trigger: Any, fn: Callable[..., Any], is_coro: bool) -> None:
         try:
             from machine import Pin
             p = Pin(pin, Pin.IN, Pin.PULL_UP)
@@ -77,13 +78,13 @@ class Scheduler:
                 if _triggered:
                     _triggered.clear()
                     try:
-                        if asyncio.iscoroutinefunction(fn):
+                        if is_coro:
                             await fn()
                         else:
                             fn()
                     except Exception as e:
                         self._log_error(fn, e)
-                await getattr(asyncio, "sleep_ms", lambda x: asyncio.sleep(x / 1000))(50)
+                await _sleep_ms(50)
         except Exception as e:
             self._log_error(fn, e)
 
@@ -91,13 +92,14 @@ class Scheduler:
 
     def add_when(self, condition_fn: Callable[[], bool], fn: Callable[..., Any]) -> None:
         """Register a condition-polling task."""
-        self._tasks.append(self._when_loop(condition_fn, fn))
+        is_coro = asyncio.iscoroutinefunction(fn)
+        self._tasks.append(lambda: self._when_loop(condition_fn, fn, is_coro))
 
-    async def _when_loop(self, condition_fn: Callable[[], bool], fn: Callable[..., Any]) -> None:
+    async def _when_loop(self, condition_fn: Callable[[], bool], fn: Callable[..., Any], is_coro: bool) -> None:
         while True:
             try:
                 if condition_fn():
-                    if asyncio.iscoroutinefunction(fn):
+                    if is_coro:
                         await fn()
                     else:
                         fn()
@@ -114,7 +116,9 @@ class Scheduler:
             while True:
                 await asyncio.sleep(1)
 
-        coros: list[Any] = list(self._tasks)
+        # _tasks holds callables (lambda wrappers) — invoke each to get a fresh
+        # coroutine so run() is safe to call more than once.
+        coros: list[Any] = [factory() for factory in self._tasks]
         await asyncio.gather(*coros)
 
     # ------------------------------------------------------------------ error

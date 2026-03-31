@@ -47,10 +47,8 @@ class DHT22(BaseSensor):
             await asyncio.sleep(0)
             try:
                 self._sensor.measure()
-                val = self._sensor.temperature()
-                self._temperature = float(val) if callable(val) else float(val)
-                val2 = self._sensor.humidity()
-                self._humidity = float(val2) if callable(val2) else float(val2)
+                self._temperature = float(self._sensor.temperature())
+                self._humidity = float(self._sensor.humidity())
             except Exception as e:
                 raise HardwareBindingError(f"DHT22 read failed: {e}") from e
             await asyncio.sleep(0)

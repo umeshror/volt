@@ -35,7 +35,7 @@ class WiFiConfig:
         password: str,
         max_retries: int = 10,
         ap_ssid: str = "volt-setup",
-        ap_password: str = "voltsetup",
+        ap_password: str = "",  # empty = open AP; captive portal handles auth
     ) -> None:
         self.ssid = ssid
         self.password = password
@@ -48,6 +48,7 @@ async def connect_wifi(
     config: WiFiConfig,
     on_connect: list[Callable[..., Any]] | None = None,
     on_disconnect: list[Callable[..., Any]] | None = None,
+    _monitor_task: list[Any] | None = None,
 ) -> bool:
     """
     Connect to WiFi with exponential backoff.
@@ -60,7 +61,7 @@ async def connect_wifi(
     on_connect_cbs: list[Callable[..., Any]] = on_connect or []
     on_disconnect_cbs: list[Callable[..., Any]] = on_disconnect or []
 
-    sta = network.WLAN(network.STA_IF) # type: ignore
+    sta = network.WLAN(network.STA_IF)  # type: ignore
     sta.active(True)
 
     if sta.isconnected():
@@ -74,7 +75,18 @@ async def connect_wifi(
         if sta.isconnected():
             print(f"[VOLT/WiFi] Connected: {sta.ifconfig()[0]}")
             await _fire_callbacks(on_connect_cbs)
-            asyncio.create_task(_monitor_connection(sta, config, on_connect_cbs, on_disconnect_cbs))  # type: ignore
+            # Cancel any existing monitor task before creating a new one
+            if _monitor_task and _monitor_task[0] is not None:
+                try:
+                    _monitor_task[0].cancel()
+                except Exception:
+                    pass
+            task_holder: list[Any] = [None]
+            task_holder[0] = asyncio.create_task(  # type: ignore
+                _monitor_connection(sta, config, on_connect_cbs, on_disconnect_cbs, task_holder)
+            )
+            if _monitor_task is not None:
+                _monitor_task[0] = task_holder[0]
             return True
         print(f"[VOLT/WiFi] Attempt {attempt + 1}/{config.max_retries} — waiting {delay}s")
         await asyncio.sleep(delay)
@@ -94,7 +106,13 @@ async def _start_ap(config: WiFiConfig) -> None:
     print(f"[VOLT/WiFi] AP mode: SSID={config.ap_ssid}")
 
 
-async def _monitor_connection(sta: Any, config: WiFiConfig, on_connect: list[Callable[..., Any]], on_disconnect: list[Callable[..., Any]]) -> None:
+async def _monitor_connection(
+    sta: Any,
+    config: WiFiConfig,
+    on_connect: list[Callable[..., Any]],
+    on_disconnect: list[Callable[..., Any]],
+    task_holder: list[Any] | None = None,
+) -> None:
     """Background task: silently reconnect if connection drops."""
     was_connected: bool = True
     while True:
@@ -103,7 +121,8 @@ async def _monitor_connection(sta: Any, config: WiFiConfig, on_connect: list[Cal
         if was_connected and not currently_connected:
             print("[VOLT/WiFi] Connection lost — reconnecting")
             await _fire_callbacks(on_disconnect)
-            await connect_wifi(config, on_connect, on_disconnect)
+            # Pass task_holder so reconnect won't spawn a duplicate monitor
+            await connect_wifi(config, on_connect, on_disconnect, task_holder)
         was_connected = currently_connected
 
 

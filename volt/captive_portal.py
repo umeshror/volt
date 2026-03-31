@@ -5,14 +5,21 @@ from __future__ import annotations
 
 try:
     import network
+except ImportError:
+    network = None
+
+try:
     import uasyncio as asyncio
 except ImportError:
     import asyncio
-    network = None
-from typing import Any
+
+try:
+    from typing import Any
+except ImportError:
+    pass
 
 from .config import ConfigManager
-from .http_server import HTTPServer, Request
+from .http_server import HTTPServer, Request, parse_qs
 from .router import Router
 
 _HTML = """
@@ -63,7 +70,7 @@ class CaptivePortal:
         body = request.body
         if not isinstance(body, dict):
             decoded = body.decode() if isinstance(body, bytes) else str(body)
-            body = self._server._parse_qs(decoded)
+            body = parse_qs(decoded)  # module-level utility, no private API access
 
         if "wifi_ssid" in body:
             self._config.set("wifi_ssid", body["wifi_ssid"])

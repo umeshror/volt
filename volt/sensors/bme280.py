@@ -7,7 +7,10 @@ driver so no external library is required.
 
 from __future__ import annotations
 
-from typing import Any
+try:
+    from typing import Any
+except ImportError:
+    pass
 
 from ..exceptions import HardwareBindingError
 from .base import BaseSensor
@@ -65,8 +68,10 @@ class BME280(BaseSensor):
         if self._i2c is None:
             return
         try:
-            raw = self._i2c.readfrom_mem(self._address, _BME280_REG_CALIB, 24) # type: ignore
-            raw2 = self._i2c.readfrom_mem(self._address, _BME280_REG_CALIB2, 7) # type: ignore
+            raw = self._i2c.readfrom_mem(self._address, _BME280_REG_CALIB, 24)  # type: ignore
+            raw2 = self._i2c.readfrom_mem(self._address, _BME280_REG_CALIB2, 7)  # type: ignore
+            # H1 lives at a separate register (0xA1), not in the main calibration block
+            raw_h1 = self._i2c.readfrom_mem(self._address, 0xA1, 1)  # type: ignore
             import struct
             dig = struct.unpack("<HhhHhhhhhhhh", raw)
             c: dict[str, Any] = {
@@ -74,7 +79,7 @@ class BME280(BaseSensor):
                 "P1": dig[3], "P2": dig[4], "P3": dig[5],
                 "P4": dig[6], "P5": dig[7], "P6": dig[8],
                 "P7": dig[9], "P8": dig[10], "P9": dig[11],
-                "H1": raw[25] if len(raw) > 25 else 0,
+                "H1": raw_h1[0],
                 "H2": struct.unpack("<h", raw2[0:2])[0],
                 "H3": raw2[2],
                 "H4": (raw2[3] << 4) | (raw2[4] & 0x0F),

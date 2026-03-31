@@ -66,7 +66,9 @@ class _WLANStub:
     def ifconfig(self):
         return ("192.168.1.100", "255.255.255.0", "192.168.1.1", "8.8.8.8")
 
-    def status(self):
+    def status(self, param=None):
+        if param == "rssi":
+            return -65  # Realistic RSSI value (dBm)
         return 1010  # STAT_GOT_IP
 
 
@@ -138,7 +140,17 @@ _machine.WDT = _WDTStub
 _machine.time_pulse_us = _time_pulse_us
 _machine.reset = MagicMock()
 _machine.freq = MagicMock(return_value=240_000_000)
+_machine.sleep_us = MagicMock()
 sys.modules["machine"] = _machine
+
+# Patch time module to include MicroPython-specific helpers used by sensors
+import time as _time_module
+if not hasattr(_time_module, "ticks_us"):
+    _time_module.ticks_us = lambda: 0  # type: ignore[attr-defined]
+if not hasattr(_time_module, "ticks_diff"):
+    _time_module.ticks_diff = lambda a, b: a - b  # type: ignore[attr-defined]
+if not hasattr(_time_module, "sleep_us"):
+    _time_module.sleep_us = lambda us: None  # type: ignore[attr-defined]
 
 # --------------------------------------------------------------------------- #
 # dht stub                                                                      #

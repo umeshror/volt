@@ -54,6 +54,7 @@ class App:
         self._on_connect_handlers: list[Callable[..., Any]] = []
         self._on_disconnect_handlers: list[Callable[..., Any]] = []
         self._boot_time: int | None = None
+        self._crash_log: Any | None = None
 
         self._pending_every: list[tuple[float, Callable[..., Any]]] = []
         self._pending_pin: list[tuple[int, Any, Callable[..., Any]]] = []
@@ -152,21 +153,15 @@ class App:
 
     # ------------------------------------------------------------------ Lifecycle hooks
 
-    @property
-    def on_connect(self) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    def on_connect(self, fn: Callable[..., Any]) -> Callable[..., Any]:
         """Decorator: register a callback for WiFi/MQTT connect events."""
-        def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
-            self._on_connect_handlers.append(fn)
-            return fn
-        return decorator
+        self._on_connect_handlers.append(fn)
+        return fn
 
-    @property
-    def on_disconnect(self) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    def on_disconnect(self, fn: Callable[..., Any]) -> Callable[..., Any]:
         """Decorator: register a callback for WiFi/MQTT disconnect events."""
-        def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
-            self._on_disconnect_handlers.append(fn)
-            return fn
-        return decorator
+        self._on_disconnect_handlers.append(fn)
+        return fn
 
     # ------------------------------------------------------------------ Utility
 
@@ -202,7 +197,9 @@ class App:
                     return {"status": "rebooting"}
             return {"error": "OTA failed"}
 
-        @self.subscribe(f"volt/{self.device_id}/ota")
+        # Defer device_id resolution to message-handling time so that the real
+        # MAC-derived ID is used even when enable_ota() is called before run().
+        @self.subscribe(f"volt/+/ota")
         def _ota_mqtt(payload: Any) -> None:
             if isinstance(payload, dict) and "url" in payload and self._ota:
                 success = self._ota.install_update(payload["url"])
@@ -216,6 +213,7 @@ class App:
             interval=interval,
             url=url,
             on_failure=self._on_disconnect_handlers,
+            crash_log=self._crash_log,  # wire through so failures are crash-logged
         )
 
     def uptime(self) -> int:
@@ -276,21 +274,20 @@ class App:
         except Exception:
             pass
 
+        # Resolve asyncio once — avoids run() and _main() binding different modules
+        # on environments where both uasyncio and asyncio are importable.
         try:
-            import uasyncio as asyncio
+            import uasyncio as _asyncio
         except ImportError:
-            import asyncio
+            import asyncio as _asyncio  # type: ignore[no-redef]
 
-        asyncio.run(self._main())
+        _asyncio.run(self._main(_asyncio))
 
-    async def _main(self) -> None:
-        try:
-            import uasyncio as asyncio
-        except ImportError:
-            import asyncio
-
+    async def _main(self, asyncio: Any) -> None:
         from .scheduler import Scheduler
         self._scheduler = Scheduler()
+        if self._crash_log is not None:
+            self._scheduler.set_crash_log(self._crash_log)
 
         from .config import ConfigManager
         config_mgr = ConfigManager(self.state)
@@ -355,7 +352,20 @@ class App:
     def _init_servers(self, asyncio: Any) -> None:
         from .http_server import HTTPServer
         self._http_server = HTTPServer(self._router)
-        asyncio.create_task(self._http_server.start()) # type: ignore
+
+        async def _http_server_task() -> None:
+            """Wrapper so HTTP server errors are logged, not silently dropped."""
+            try:
+                await self._http_server.start()  # type: ignore
+            except Exception as e:
+                print(f"[VOLT/HTTP] Server crashed: {e}")
+                if self._crash_log is not None:
+                    try:
+                        self._crash_log.log(type(e).__name__, str(e))
+                    except Exception:
+                        pass
+
+        asyncio.create_task(_http_server_task())  # type: ignore
 
         if hasattr(self._router, "_ble_routes") and self._router._ble_routes:
             from .ble import BLEServer

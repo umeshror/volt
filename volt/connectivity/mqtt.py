@@ -21,11 +21,23 @@ except ImportError:
     import json
 
 try:
+    from collections import deque
+except ImportError:
+    deque = None  # type: ignore[assignment,misc]
+
+try:
     from typing import Any, Callable
 except ImportError:
     pass
 
 _QUEUE_PATH = "/mqtt_queue.json"
+
+
+def _sleep_ms(ms: int) -> Any:
+    """Portable sleep: uses uasyncio.sleep_ms on device, asyncio.sleep on host."""
+    if hasattr(asyncio, "sleep_ms"):
+        return asyncio.sleep_ms(ms)  # type: ignore[attr-defined]
+    return asyncio.sleep(ms / 1000)
 
 
 class MQTTConfig:
@@ -62,6 +74,7 @@ class MQTTManager:
         self._on_disconnect: list[Callable[..., Any]] = on_disconnect or []
         self._client: Any = None
         self._connected: bool = False
+        self._reconnecting: bool = False  # guard against duplicate reconnect tasks
         self._queue: list[dict[str, Any]] = []
         self._load_queue()
 
@@ -89,11 +102,13 @@ class MQTTManager:
             self._subscribe_all()
             await self._flush_queue()
             await self._fire_callbacks(self._on_connect)
-            asyncio.create_task(self._poll_loop()) # type: ignore
+            asyncio.create_task(self._poll_loop())  # type: ignore
         except Exception as e:
             print(f"[VOLT/MQTT] Connection error: {e}")
             self._connected = False
-            asyncio.create_task(self._reconnect_loop()) # type: ignore
+            # Do NOT spawn _reconnect_loop here — the poll_loop caller is
+            # responsible for that, or the caller must trigger reconnect.
+            # Spawning here would bypass the _reconnecting guard.
 
     def _subscribe_all(self) -> None:
         if self._router is None or self._client is None:
@@ -127,23 +142,28 @@ class MQTTManager:
     # ------------------------------------------------------------------ offline queue
 
     def _enqueue(self, topic: str, payload: Any) -> None:
+        modified = False
         if len(self._queue) >= self._config.max_queue_size:
             policy = self._config.queue_overflow
             if policy == "drop_oldest":
-                self._queue.pop(0)
+                del self._queue[0]
                 self._queue.append({"topic": topic, "payload": payload})
+                modified = True
             elif policy == "drop_newest":
-                pass
+                pass  # discard incoming — queue unchanged, no write needed
             elif policy == "raise":
                 from ..exceptions import NetworkError
                 raise NetworkError("MQTT offline queue overflow")
             else:
-                self._queue.pop(0)
+                del self._queue[0]
                 self._queue.append({"topic": topic, "payload": payload})
+                modified = True
         else:
             self._queue.append({"topic": topic, "payload": payload})
-            
-        self._save_queue()
+            modified = True
+
+        if modified:
+            self._save_queue()
 
     def _load_queue(self) -> None:
         try:
@@ -211,17 +231,24 @@ class MQTTManager:
                 except Exception as e:
                     print(f"[VOLT/MQTT] Poll error: {e}")
                     self._connected = False
-                    asyncio.create_task(self._reconnect_loop()) # type: ignore
+                    asyncio.create_task(self._reconnect_loop())  # type: ignore
                     return
-            await asyncio.sleep_ms(100) # type: ignore
+            await _sleep_ms(100)
 
     async def _reconnect_loop(self) -> None:
+        # Guard: only one reconnect loop may run at a time.
+        if self._reconnecting:
+            return
+        self._reconnecting = True
         delay = 5
-        while not self._connected:
-            print(f"[VOLT/MQTT] Reconnecting in {delay}s")
-            await asyncio.sleep(delay)
-            delay = min(delay * 2, 60)
-            await self.connect()
+        try:
+            while not self._connected:
+                print(f"[VOLT/MQTT] Reconnecting in {delay}s")
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 60)
+                await self.connect()
+        finally:
+            self._reconnecting = False
 
     async def _fire_callbacks(self, callbacks: list[Callable[..., Any]]) -> None:
         for cb in callbacks:

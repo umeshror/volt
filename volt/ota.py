@@ -60,9 +60,20 @@ class OTAManager:
 
         try:
             resp = requests.get(firmware_url, stream=True)
+        except Exception as e:
+            print(f"[VOLT/OTA] Connection error: {e}")
+            return False
+
+        try:
             if resp.status_code != 200:
                 print(f"[VOLT/OTA] Firmware download failed: HTTP {resp.status_code}")
                 return False
+
+            if not hasattr(resp, "raw"):
+                raise RuntimeError(
+                    "OTA requires a streaming-capable urequests (resp.raw). "
+                    "Loading the full firmware into RAM is not safe on this device."
+                )
 
             total_size = int(resp.headers.get("content-length", "0"))
 
@@ -75,8 +86,7 @@ class OTAManager:
             block_num: int = 0
 
             while True:
-                # Some requests implementations read chunks
-                chunk = resp.raw.read(self.chunk_size) if hasattr(resp, "raw") else resp.content[bytes_written:bytes_written+self.chunk_size]
+                chunk = resp.raw.read(self.chunk_size)
                 if not chunk:
                     break
 
@@ -89,8 +99,6 @@ class OTAManager:
                 if progress_cb and total_size > 0:
                     progress_cb(bytes_written, total_size)
 
-            resp.close()
-
             # Switch boot partition
             partition.set_boot()
             print("[VOLT/OTA] OTA flashing complete. Next boot will use new partition.")
@@ -99,6 +107,11 @@ class OTAManager:
         except Exception as e:
             print(f"[VOLT/OTA] Flash error: {e}")
             return False
+        finally:
+            try:
+                resp.close()
+            except Exception:
+                pass
 
     def commit(self) -> None:
         """

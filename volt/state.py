@@ -61,23 +61,21 @@ class State:
 
     def _save(self) -> None:
         """Atomic write: write to .tmp then rename."""
+        content = json.dumps(self._data)
         try:
-            content = json.dumps(self._data)
             with open(self._tmp_path, "w") as f:
                 f.write(content)
-            # Rename — atomic on most filesystems
-            try:
-                os.rename(self._tmp_path, self._path)
-            except OSError:
-                # If rename fails (e.g. cross-device link on test environments), attempt direct overwrite
-                try:
-                    with open(self._path, "w") as f:
-                        f.write(content)
-                except Exception as e:
-                    raise StateError(f"Failed atomic rename and fallback overwrite: {e}") from e
         except Exception as e:
-            print(f"[VOLT/State] Save error: {e}")
-            raise StateError(f"Failed to persist state: {e}") from e
+            raise StateError(f"Failed to write temp file: {e}") from e
+        try:
+            os.rename(self._tmp_path, self._path)
+        except OSError:
+            # Rename failed (e.g. cross-device link on test environments) — fall back to direct write
+            try:
+                with open(self._path, "w") as f:
+                    f.write(content)
+            except Exception as e:
+                raise StateError(f"Failed atomic rename and fallback overwrite: {e}") from e
 
     # ------------------------------------------------------------------ public API
 
@@ -100,6 +98,8 @@ class State:
         """Batch-update multiple keys atomically."""
         self._data.update(mapping)
         self._save()
+        # Sync each key individually; failures are logged but do not prevent
+        # other keys from being synced.
         for k, v in mapping.items():
             self._notify_sync(k, v)
 

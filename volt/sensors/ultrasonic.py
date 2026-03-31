@@ -71,8 +71,7 @@ class Ultrasonic(BaseSensor):
         try:
             self._pulse_us = -1
             self._trig.on()
-            for _ in range(40):
-                pass
+            self._time.sleep_us(10)  # HC-SR04 requires >=10µs trigger pulse
             self._trig.off()
 
             # Poll for the IRQ to finish (up to 30ms total)

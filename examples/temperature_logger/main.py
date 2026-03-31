@@ -34,7 +34,7 @@ async def publish_reading():
     data["device"] = app.device_id
     data["uptime"] = app.uptime()
     if app.mqtt and app.mqtt.is_connected:
-        await app.mqtt.publish("home/sensors/temperature", data)
+        app.mqtt.publish("home/sensors/temperature", data)  # publish() is synchronous
         print(f"[app] Published: {data}")
 
 

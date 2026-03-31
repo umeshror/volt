@@ -64,7 +64,11 @@ class Router:
     # ------------------------------------------------------------------ MQTT
 
     def add_mqtt_route(self, topic: str, handler: Any) -> None:
-        """Register an MQTT subscription handler."""
+        """Register an MQTT subscription handler. Topic is always stored as str."""
+        # Normalise to str so inbound topics (which arrive as str or bytes) always
+        # match correctly regardless of how the pattern was originally provided.
+        if isinstance(topic, (bytes, bytearray)):
+            topic = topic.decode()
         self._mqtt_routes[topic] = handler
 
     def resolve_mqtt(self, topic: str) -> tuple[Any, None] | None:

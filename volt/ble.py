@@ -15,6 +15,13 @@ except ImportError:
     pass
 
 try:
+    import hashlib as _hashlib
+    _HASHLIB_AVAILABLE = True
+except ImportError:
+    _hashlib = None  # type: ignore[assignment]
+    _HASHLIB_AVAILABLE = False
+
+try:
     import ubluetooth as bluetooth
     _BT_AVAILABLE = True
 except ImportError:
@@ -62,7 +69,17 @@ class BLEServer:
         characteristics = []
         routes = getattr(self._router, "_ble_routes", {})
         for name in routes:
-            char_uuid = bluetooth.UUID(hash(name) & 0xFFFF)
+            # Derive a stable, deterministic 16-bit UUID from the characteristic
+            # name via SHA-256. Using Python's built-in hash() is not safe because
+            # it is randomised per-process (hash randomisation) and collisions are
+            # more likely in the 16-bit space.
+            if _HASHLIB_AVAILABLE and _hashlib is not None:
+                digest = _hashlib.sha256(name.encode()).digest()
+            else:
+                # Fallback: derive a naive deterministic int from the name bytes
+                digest = bytes(sum(b for b in name.encode()) % 256 for _ in range(2))
+            uuid_int = struct.unpack(">H", digest[:2])[0]
+            char_uuid = bluetooth.UUID(uuid_int)
             flags = bluetooth.FLAG_READ | bluetooth.FLAG_NOTIFY
             characteristics.append((char_uuid, flags))
             self._char_handles[name] = char_uuid
